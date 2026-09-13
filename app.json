@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "NearByPharmacies",
-    "slug": "NearByPharmacies",
+    "name": "medtrack",
+    "slug": "medtrack",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
