@@ -11,7 +11,6 @@ import ProfileScreen from './screens/ProfileScreen';
 import NearbyPharmaciesScreen from './screens/NearbyPharmaciesScreen';
 import MedicationsScreen from './screens/MedsScreen';
 
-
 const Stack = createNativeStackNavigator();
 
 export default function App() {
@@ -22,48 +21,16 @@ export default function App() {
           initialRouteName="Splash"
           screenOptions={{
             headerShown: false,
-            contentStyle: {
-              backgroundColor: '#ffffff',
-            },
+            contentStyle: { backgroundColor: '#ffffff' },
           }}
         >
-          {/* Authentication */}
-          <Stack.Screen
-            name="Splash"
-            component={SplashScreen}
-          />
-
-          <Stack.Screen
-            name="Login"
-            component={LoginScreen}
-          />
-
-          <Stack.Screen
-            name="SignUp"
-            component={SignupScreen}
-          />
-
-          {/* Main app */}
-          <Stack.Screen
-            name="Home"
-            component={HomeScreen}
-          />
-
-
-          <Stack.Screen
-            name="Profile"
-            component={ProfileScreen}
-          />
-
+          <Stack.Screen name="Splash" component={SplashScreen} />
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="SignUp" component={SignupScreen} />
+          <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Pharmacy" component={NearbyPharmaciesScreen} />
-            <Stack.Screen
-            name="Medications"
-            component={MedicationsScreen}
-          />
-
-
-
-
+          <Stack.Screen name="Medications" component={MedicationsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
