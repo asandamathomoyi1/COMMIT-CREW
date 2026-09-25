@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -10,11 +9,10 @@ import SignupScreen from './screens/SignupScreen';
 import HomeScreen from './screens/HomeScreen';
 import MedicationsScreen from './screens/MedsScreen';
 import AddMedicationScreen from './screens/AddMedication';
-import NearbyPharmaciesScreen from './screens/NearbyPharmaciesScreen';
+import NearbyPharmaciesScreen from './screens/NearbyPharmaciesScreen.jsx';
 import ProfileScreen from './screens/ProfileScreen';
 import EmergencyScreen from './screens/EmergencyScreen';
 import EditEmergencyInfoScreen from './screens/Editemergencyinfoscreen';
-import PharmacyDealsScreen from './screens/PharmacydealsScreen';
 
 import { EmergencyInfoProvider } from './screens/Emergencyinfocontext';
 import { MedicationsProvider } from './context/MedicationsContext';
@@ -36,63 +34,16 @@ export default function App() {
                 },
               }}
             >
-              <Stack.Screen
-                name="Splash"
-                component={SplashScreen}
-              />
-
-              <Stack.Screen
-                name="Login"
-                component={LoginScreen}
-              />
-
-              <Stack.Screen
-                name="SignUp"
-                component={SignupScreen}
-              />
-
-              <Stack.Screen
-                name="Home"
-                component={HomeScreen}
-              />
-
-              <Stack.Screen
-                name="Medications"
-                component={MedicationsScreen}
-              />
-
-              <Stack.Screen
-                name="AddMedication"
-                component={AddMedicationScreen}
-              />
-
-              <Stack.Screen
-                name="Pharmacy"
-                component={NearbyPharmaciesScreen}
-              />
-
-              <Stack.Screen
-                name="Profile"
-                component={ProfileScreen}
-              />
-
-              <Stack.Screen
-                name="Emergency"
-                component={EmergencyScreen}
-              />
-
-              <Stack.Screen
-                name="EditEmergencyInfo"
-                component={EditEmergencyInfoScreen}
-              
-              />
-              
-            <Stack.Screen
-                name="PharmacyDeals"
-                component={PharmacyDealsScreen}
-              
-              />
-              
+              <Stack.Screen name="Splash" component={SplashScreen} />
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="SignUp" component={SignupScreen} />
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Medications" component={MedicationsScreen} />
+              <Stack.Screen name="AddMedication" component={AddMedicationScreen} />
+              <Stack.Screen name="Pharmacy" component={NearbyPharmaciesScreen} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="Emergency" component={EmergencyScreen} />
+              <Stack.Screen name="EditEmergencyInfo" component={EditEmergencyInfoScreen} />
             </Stack.Navigator>
           </NavigationContainer>
         </SafeAreaProvider>
@@ -100,4 +51,3 @@ export default function App() {
     </MedicationsProvider>
   );
 }
-
