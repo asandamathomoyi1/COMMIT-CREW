@@ -58,14 +58,14 @@ export default function SplashScreen({ navigation }) {
       <View style={styles.buttonSection}>
         <TouchableOpacity 
           style={styles.getStartedButton}
-          onPress={() => navigation.navigate('SignUp')}
+          onPress={() => navigation.navigate('SignUp', { role: 'patient' })}
         >
           <Text style={styles.getStartedText}>Get Started</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.signInButton}
-          onPress={() => navigation.navigate('Login')}
+          onPress={() => navigation.navigate('Login', { role: 'patient' })}
         >
           <Text style={styles.signInText}>Sign In</Text>
         </TouchableOpacity>
@@ -212,6 +212,6 @@ const styles = StyleSheet.create({
     color: '#a0aec0',
     fontSize: 12,
     marginTop: 20,
-    letterSpacing: 2,
-  },
+    letterSpacing: 1
+  }
 });

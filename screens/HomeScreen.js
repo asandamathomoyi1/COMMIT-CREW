@@ -5,58 +5,63 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  StatusBar
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const MEDICATIONS = [
-  {
-    id: '1',
-    name: 'Metformin',
-    dosage: '500mg',
-    due: '20:00',
-    color: '#4a90d9',
-    icon: '💊',
-  },
-  {
-    id: '2',
-    name: 'Salbutamol',
-    dosage: '100mcg',
-    due: 'As needed',
-    color: '#8e5fd9',
-    icon: '💊',
-  },
-  {
-    id: '3',
-    name: 'Levetiracetam',
-    dosage: '500mg',
-    due: '19:00',
-    color: '#e0932c',
-    icon: '💊',
-  },
-  {
-    id: '4',
-    name: 'Vitamin D3',
-    dosage: '1000IU',
-    due: 'Tomorrow 08:00',
-    color: '#2ea86b',
-    icon: '💊',
-  },
-];
+import { Ionicons } from '@expo/vector-icons';
+import { useMedications } from '../context/MedicationsContext';
 
 const TABS = [
-  { key: 'Home', label: 'Home', icon: '🏠' },
-  { key: 'Medications', label: 'Meds', icon: '💗' },
-  { key: 'History', label: 'History', icon: '🗓️' },
-  { key: 'Pharmacy', label: 'Pharmacy', icon: '📍' },
-  { key: 'Profile', label: 'Profile', icon: '👤' },
+  { key: 'Home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
+  { key: 'Medications', label: 'Meds', icon: 'medkit-outline', iconActive: 'medkit' },
+  { key: 'History', label: 'History', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+  { key: 'Pharmacy', label: 'Pharmacy', icon: 'location-outline', iconActive: 'location' },
+  { key: 'Profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
+
+// ---------------------------------------------------------------------------
+// TEMPORARY MOCK DATA — replace with the same source PharmacyDealsScreen
+// uses (DB fetch / shared context) so both screens stay in sync. Only the
+// top promoted deal is shown here as a teaser.
+// ---------------------------------------------------------------------------
+const FEATURED_DEAL = {
+  id: '1',
+  pharmacyName: 'Clicks Pharmacy',
+  discount: '10% off selected medication',
+  distanceKm: 2.3,
+  isPromoted: true,
+};
 
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
   return 'Good evening';
+}
+
+function formatTimeLabel(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+function getNextDoseLabel(med) {
+  if (!med.times || med.times.length === 0) return 'As needed';
+  const now = new Date();
+  const todaysTimes = [...med.times]
+    .map((t) => {
+      const [h, m] = t.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      return { raw: t, date: d };
+    })
+    .sort((a, b) => a.date - b.date);
+
+  const upcoming = todaysTimes.find((entry) => entry.date > now);
+  if (upcoming) return `Due ${formatTimeLabel(upcoming.raw)}`;
+  return `Tomorrow ${formatTimeLabel(todaysTimes[0].raw)}`;
 }
 
 function BottomTabBar({ activeTab, onTabPress }) {
@@ -71,9 +76,11 @@ function BottomTabBar({ activeTab, onTabPress }) {
             onPress={() => onTabPress(tab.key)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>
-              {tab.icon}
-            </Text>
+            <Ionicons
+              name={isActive ? tab.iconActive : tab.icon}
+              size={21}
+              color={isActive ? '#4a90d9' : '#9aa5b1'}
+            />
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
               {tab.label}
             </Text>
@@ -85,19 +92,15 @@ function BottomTabBar({ activeTab, onTabPress }) {
 }
 
 export default function HomeScreen({ navigation, userName = 'Alex' }) {
-  const [takenMap, setTakenMap] = useState({});
+  const { medications, toggleTaken } = useMedications();
   const [activeTab, setActiveTab] = useState('Home');
 
-  const totalCount = MEDICATIONS.length;
+  const totalCount = medications.length;
   const takenCount = useMemo(
-    () => Object.values(takenMap).filter(Boolean).length,
-    [takenMap]
+    () => medications.filter((m) => m.takenToday).length,
+    [medications]
   );
   const adherencePct = totalCount === 0 ? 0 : Math.round((takenCount / totalCount) * 100);
-
-  const handleTake = (id) => {
-    setTakenMap((prev) => ({ ...prev, [id]: true }));
-  };
 
   const handleTabPress = (tabKey) => {
     setActiveTab(tabKey);
@@ -119,13 +122,13 @@ export default function HomeScreen({ navigation, userName = 'Alex' }) {
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.greetingText}>{getGreeting()},</Text>
-              <Text style={styles.userName}>{userName} 👋</Text>
+              <Text style={styles.userName}>{userName}</Text>
             </View>
             <TouchableOpacity
               style={styles.emergencyButton}
               onPress={() => navigation.navigate('Emergency')}
             >
-              <Text style={styles.emergencyIcon}>🆘</Text>
+              <Ionicons name="alert-circle-outline" size={15} color="#ffffff" />
               <Text style={styles.emergencyText}>Emergency</Text>
             </TouchableOpacity>
           </View>
@@ -137,12 +140,12 @@ export default function HomeScreen({ navigation, userName = 'Alex' }) {
               <Text style={styles.adherencePct}>{adherencePct}%</Text>
             </View>
             <View style={styles.progressTrack}>
-              <View
-                style={[styles.progressFill, { width: `${adherencePct}%` }]}
-              />
+              <View style={[styles.progressFill, { width: `${adherencePct}%` }]} />
             </View>
             <Text style={styles.adherenceSubtext}>
-              {takenCount} of {totalCount} medications taken today
+              {totalCount === 0
+                ? 'Add a medication to start tracking'
+                : `${takenCount} of ${totalCount} medications taken today`}
             </Text>
           </View>
         </View>
@@ -151,46 +154,84 @@ export default function HomeScreen({ navigation, userName = 'Alex' }) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>NEXT DOSES</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Medications')}>
+            {totalCount > 0 && (
+              <TouchableOpacity onPress={() => navigation.navigate('Medications')}>
+                <Text style={styles.viewAllText}>View all</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {totalCount === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="medkit-outline" size={30} color="#c3cdd8" />
+              <Text style={styles.emptyStateTitle}>No medications yet</Text>
+              <Text style={styles.emptyStateText}>
+                Add your first medication to see it here and get reminders.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyStateBtn}
+                onPress={() => navigation.navigate('AddMedication')}
+              >
+                <Text style={styles.emptyStateBtnText}>Add Medication</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            medications.map((med) => {
+              const isTaken = !!med.takenToday;
+              return (
+                <View key={med.id} style={styles.doseCard}>
+                  <View style={[styles.doseIconWrap, { backgroundColor: med.color }]}>
+                    <Ionicons name={med.icon || 'medkit-outline'} size={20} color="#ffffff" />
+                  </View>
+                  <View style={styles.doseInfo}>
+                    <Text style={styles.doseName}>{med.name}</Text>
+                    <Text style={styles.doseMeta}>
+                      {med.dosage} · {getNextDoseLabel(med)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.takeButton, isTaken && styles.takeButtonDone]}
+                    onPress={() => toggleTaken(med.id)}
+                  >
+                    <Text style={[styles.takeButtonText, isTaken && styles.takeButtonTextDone]}>
+                      {isTaken ? 'Taken' : 'Take'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {/* Nearby Pharmacy Deals */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>NEARBY DEALS</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Pharmacy')}>
               <Text style={styles.viewAllText}>View all</Text>
             </TouchableOpacity>
           </View>
 
-          {MEDICATIONS.map((med) => {
-            const isTaken = !!takenMap[med.id];
-            return (
-              <View key={med.id} style={styles.doseCard}>
-                <View
-                  style={[styles.doseIconWrap, { backgroundColor: med.color }]}
-                >
-                  <Text style={styles.doseIconText}>{med.icon}</Text>
-                </View>
-                <View style={styles.doseInfo}>
-                  <Text style={styles.doseName}>{med.name}</Text>
-                  <Text style={styles.doseMeta}>
-                    {med.dosage} · Due {med.due}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.takeButton,
-                    isTaken && styles.takeButtonDone,
-                  ]}
-                  onPress={() => handleTake(med.id)}
-                  disabled={isTaken}
-                >
-                  <Text
-                    style={[
-                      styles.takeButtonText,
-                      isTaken && styles.takeButtonTextDone,
-                    ]}
-                  >
-                    {isTaken ? 'Taken' : 'Take'}
-                  </Text>
-                </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.dealCard}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Pharmacy')}
+          >
+            {FEATURED_DEAL.isPromoted && (
+              <View style={styles.dealPromotedBadge}>
+                <Text style={styles.dealPromotedBadgeText}>PROMOTED</Text>
               </View>
-            );
-          })}
+            )}
+            <View style={styles.dealIconWrap}>
+              <Text style={styles.dealIconText}>💊</Text>
+            </View>
+            <View style={styles.dealInfo}>
+              <Text style={styles.dealPharmacyName}>{FEATURED_DEAL.pharmacyName}</Text>
+              <Text style={styles.dealDiscount}>{FEATURED_DEAL.discount}</Text>
+              <Text style={styles.dealDistance}>{FEATURED_DEAL.distanceKm} km away</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#c3cdd8" />
+          </TouchableOpacity>
         </View>
 
         {/* Quick actions */}
@@ -201,14 +242,14 @@ export default function HomeScreen({ navigation, userName = 'Alex' }) {
               style={styles.quickActionCard}
               onPress={() => navigation.navigate('AddMedication')}
             >
-              <Text style={styles.quickActionIcon}>➕</Text>
+              <Ionicons name="add-circle-outline" size={24} color="#4a90d9" />
               <Text style={styles.quickActionText}>Add Medication</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.quickActionCard, styles.quickActionCardAlt]}
               onPress={() => navigation.navigate('Pharmacy')}
             >
-              <Text style={styles.quickActionIcon}>📍</Text>
+              <Ionicons name="location-outline" size={24} color="#8e5fd9" />
               <Text style={[styles.quickActionText, styles.quickActionTextAlt]}>
                 Find Pharmacy
               </Text>
@@ -265,9 +306,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
     gap: 6,
-  },
-  emergencyIcon: {
-    fontSize: 14,
   },
   emergencyText: {
     color: '#ffffff',
@@ -332,6 +370,38 @@ const styles = StyleSheet.create({
     color: '#4a90d9',
     fontWeight: '600',
   },
+  emptyState: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#43505e',
+    marginTop: 10,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: '#8a94a3',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  emptyStateBtn: {
+    marginTop: 16,
+    backgroundColor: '#4a90d9',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 20,
+  },
+  emptyStateBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   doseCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -352,9 +422,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
-  },
-  doseIconText: {
-    fontSize: 20,
   },
   doseInfo: {
     flex: 1,
@@ -386,6 +453,65 @@ const styles = StyleSheet.create({
   takeButtonTextDone: {
     color: '#2ea86b',
   },
+  dealCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+    position: 'relative',
+  },
+  dealPromotedBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#4a90d9',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  dealPromotedBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  dealIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#f0f7ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  dealIconText: {
+    fontSize: 20,
+  },
+  dealInfo: {
+    flex: 1,
+  },
+  dealPharmacyName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a2a3a',
+  },
+  dealDiscount: {
+    fontSize: 13,
+    color: '#2ecc71',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  dealDistance: {
+    fontSize: 12,
+    color: '#a0aec0',
+    marginTop: 2,
+  },
   quickActionsRow: {
     flexDirection: 'row',
     gap: 14,
@@ -397,13 +523,10 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
   quickActionCardAlt: {
     backgroundColor: '#f2eafb',
-  },
-  quickActionIcon: {
-    fontSize: 26,
-    marginBottom: 8,
   },
   quickActionText: {
     fontSize: 15,
@@ -426,13 +549,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-  },
-  tabIcon: {
-    fontSize: 20,
-    opacity: 0.45,
-  },
-  tabIconActive: {
-    opacity: 1,
   },
   tabLabel: {
     fontSize: 11,
