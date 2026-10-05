@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,49 @@ import {
   Alert,
   StatusBar,
   ActivityIndicator,
+  Animated,
+  Easing,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useMedications } from '../context/MedicationsContext';
+
+// ---------------------------------------------------------------------------
+// Design tokens — matches Splash / Home / Medications
+// ---------------------------------------------------------------------------
+const C = {
+  deep: '#1B0A3D',
+  violet: '#4C1D95',
+  magenta: '#A21CAF',
+  rose: '#F43F5E',
+  coral: '#FB923C',
+
+  primary: '#7C3AED',
+  primaryDark: '#5B21B6',
+  primarySoft: '#F3E8FF',
+  magentaSoft: '#FAE8FF',
+  magenta: '#A21CAF',
+  mint: '#5EEAD4',
+
+  success: '#059669',
+  successSoft: '#ECFDF5',
+  warning: '#D97706',
+  warningSoft: '#FFFBEB',
+  danger: '#DC2626',
+  dangerSoft: '#FEF2F2',
+
+  ink: '#0B1220',
+  inkSoft: '#475569',
+  inkMuted: '#64748B',
+  inkFaint: '#94A3B8',
+  line: '#EDE9FE',
+  surface: '#FFFFFF',
+  bg: '#F8F7FC',
+};
 
 const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times', 'As needed'];
 
@@ -27,14 +63,11 @@ const FREQ_DEFAULT_TIMES = {
   'As needed': [],
 };
 
-const PALETTE = ['#4a90d9', '#8e5fd9', '#e0932c', '#2ea86b', '#e05c7a', '#20a8a8'];
+// Colors pulled from the theme palette so saved medications look native
+const PALETTE = ['#7C3AED', '#A21CAF', '#D97706', '#059669', '#DB2777', '#0891B2'];
 
-// Public, keyless product-lookup endpoint used to resolve a scanned barcode
-// into a product name/size. Free tier is rate-limited and best-effort —
-// callers must always be ready for a miss or a network failure.
 const BARCODE_LOOKUP_URL = 'https://api.upcitemdb.com/prod/trial/lookup?upc=';
 
-// Returns an Ionicons name so Home / Medications can render a matching icon.
 function iconFor(condition = '') {
   const c = condition.toLowerCase();
   if (c.includes('asthma') || c.includes('lung') || c.includes('breath')) return 'body-outline';
@@ -47,19 +80,18 @@ function iconFor(condition = '') {
   return 'medkit-outline';
 }
 
-// Pulls a dosage-looking token (e.g. "500mg", "10 ML", "200 mcg") out of a
-// free-text product title/size string, since lookup APIs rarely split it out.
 function extractDosage(text = '') {
   const match = text.match(/(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu))/i);
   return match ? match[1].replace(/\s+/g, '').toUpperCase() : '';
 }
 
-// Strips a matched dosage token and common package-size noise out of a title
-// so the "name" field isn't cluttered with it.
 function cleanName(title = '', dosageToken = '') {
   let cleaned = title;
   if (dosageToken) {
-    cleaned = cleaned.replace(new RegExp(dosageToken.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1'), 'i'), '');
+    cleaned = cleaned.replace(
+      new RegExp(dosageToken.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1'), 'i'),
+      ''
+    );
   }
   cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/[,-]\s*$/, '').trim();
   return cleaned || title.trim();
@@ -84,14 +116,23 @@ function formatTimeLabel(t) {
   return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 function TimeField({ value, onChange }) {
   const [showPicker, setShowPicker] = useState(false);
-
   return (
     <View style={styles.timeRow}>
-      <TouchableOpacity style={styles.timeInput} onPress={() => setShowPicker(true)}>
-        <Text style={styles.timeInputText}>{formatTimeLabel(value)}</Text>
-        <Ionicons name="time-outline" size={16} color="#7f8c8d" />
+      <TouchableOpacity
+        style={styles.timeInput}
+        onPress={() => setShowPicker(true)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.timeLeft}>
+          <Ionicons name="time-outline" size={16} color={C.primary} />
+          <Text style={styles.timeInputText}>{formatTimeLabel(value)}</Text>
+        </View>
+        <Ionicons name="chevron-down" size={16} color={C.inkFaint} />
       </TouchableOpacity>
       {showPicker && (
         <DateTimePicker
@@ -126,16 +167,56 @@ function FreqButton({ label, active, onPress }) {
   );
 }
 
+function ModeToggle({ mode, onChange, onEnterScan }) {
+  return (
+    <View style={styles.toggleRow}>
+      <TouchableOpacity
+        style={[styles.toggleBtn, mode === 'manual' && styles.toggleActive]}
+        onPress={() => onChange('manual')}
+        activeOpacity={0.8}
+      >
+        <Ionicons
+          name="create-outline"
+          size={16}
+          color={mode === 'manual' ? C.primary : C.inkFaint}
+        />
+        <Text style={[styles.toggleText, mode === 'manual' && styles.toggleTextActive]}>
+          Manual
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.toggleBtn, mode === 'scan' && styles.toggleActive]}
+        onPress={onEnterScan}
+        activeOpacity={0.8}
+      >
+        <Ionicons
+          name="camera-outline"
+          size={16}
+          color={mode === 'scan' ? C.primary : C.inkFaint}
+        />
+        <Text style={[styles.toggleText, mode === 'scan' && styles.toggleTextActive]}>
+          Scan
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
 export default function AddMedicationScreen({ navigation }) {
   const { addMedication } = useMedications();
+  const insets = useSafeAreaInsets();
 
-  const [mode, setMode] = useState('manual'); // 'manual' | 'scan'
+  const [mode, setMode] = useState('manual');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanLocked, setScanLocked] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [scanBanner, setScanBanner] = useState(null);
-  const [scanBannerTone, setScanBannerTone] = useState('success'); // 'success' | 'neutral'
+  const [scanBannerTone, setScanBannerTone] = useState('success');
 
   const [name, setName] = useState('');
   const [dosage, setDosage] = useState('');
@@ -146,6 +227,41 @@ export default function AddMedicationScreen({ navigation }) {
 
   const lastScanRef = useRef(null);
 
+  /* ── entrance animations ────────────────────────────────────────── */
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const headerRise = useRef(new Animated.Value(16)).current;
+  const bloom = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(headerFade, {
+        toValue: 1, duration: 500, delay: 40,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(headerRise, {
+        toValue: 0, duration: 500, delay: 40,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+    ]).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bloom, {
+          toValue: 1, duration: 7000,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+        Animated.timing(bloom, {
+          toValue: 0, duration: 7000,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const bloomX = bloom.interpolate({ inputRange: [0, 1], outputRange: [0, -40] });
+  const bloomY = bloom.interpolate({ inputRange: [0, 1], outputRange: [0, 30] });
+
+  /* ── form logic ─────────────────────────────────────────────────── */
   function changeFrequency(freq) {
     setFrequency(freq);
     setTimes(FREQ_DEFAULT_TIMES[freq]);
@@ -170,8 +286,6 @@ export default function AddMedicationScreen({ navigation }) {
     setMode('scan');
   }
 
-  // Looks the scanned code up against a product database and, on a hit,
-  // fills in as many fields as we can confidently parse out of the result.
   async function lookupBarcode(code) {
     setLookupLoading(true);
     try {
@@ -197,11 +311,15 @@ export default function AddMedicationScreen({ navigation }) {
         );
       } else {
         setScanBannerTone('neutral');
-        setScanBanner("We couldn't find that barcode in the product database — enter the details below to finish adding it.");
+        setScanBanner(
+          "We couldn't find that barcode in the product database — enter the details below to finish adding it.",
+        );
       }
     } catch (e) {
       setScanBannerTone('neutral');
-      setScanBanner("Couldn't reach the lookup service — enter the details below to finish adding it.");
+      setScanBanner(
+        "Couldn't reach the lookup service — enter the details below to finish adding it.",
+      );
     } finally {
       setLookupLoading(false);
       setMode('manual');
@@ -209,13 +327,10 @@ export default function AddMedicationScreen({ navigation }) {
   }
 
   function handleBarcodeScanned({ data }) {
-    // Debounce repeated callbacks from the same code while the camera is open
     if (scanLocked || lastScanRef.current === data) return;
     lastScanRef.current = data;
     setScanLocked(true);
-
     lookupBarcode(data);
-
     setTimeout(() => {
       setScanLocked(false);
       lastScanRef.current = null;
@@ -232,7 +347,6 @@ export default function AddMedicationScreen({ navigation }) {
 
   function handleSave() {
     if (!validate()) return;
-
     const newMedication = {
       id: `m${Date.now()}`,
       name: name.trim(),
@@ -244,49 +358,67 @@ export default function AddMedicationScreen({ navigation }) {
       color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
       takenToday: false,
     };
-
     addMedication(newMedication);
     navigation.navigate('Medications');
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <StatusBar barStyle="light-content" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backRow}>
-          <Ionicons name="chevron-back" size={18} color="#ffffff" />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Medication</Text>
-        <Text style={styles.headerSubtitle}>Scan packaging or enter details manually</Text>
-      </View>
+      {/* ================================================================ */}
+      {/* HEADER                                                            */}
+      {/* ================================================================ */}
+      <Animated.View
+        style={{ opacity: headerFade, transform: [{ translateY: headerRise }] }}
+      >
+        <View style={styles.headerWrap}>
+          <LinearGradient
+            colors={[C.deep, C.violet, C.magenta, C.rose]}
+            locations={[0, 0.35, 0.7, 1]}
+            start={{ x: 0.05, y: 0 }}
+            end={{ x: 0.95, y: 1 }}
+            style={styles.headerGradient}
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.bloom,
+                { transform: [{ translateX: bloomX }, { translateY: bloomY }] },
+              ]}
+            />
 
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.toggleBtn, mode === 'manual' ? styles.toggleActive : styles.toggleInactive]}
-          onPress={() => setMode('manual')}
-        >
-          <Ionicons
-            name="create-outline"
-            size={16}
-            color={mode === 'manual' ? '#4a90d9' : '#8a94a3'}
-          />
-          <Text style={[styles.toggleText, mode === 'manual' && styles.toggleTextActive]}>Manual</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleBtn, mode === 'scan' ? styles.toggleActive : styles.toggleInactive]}
-          onPress={handleEnterScanMode}
-        >
-          <Ionicons
-            name="camera-outline"
-            size={16}
-            color={mode === 'scan' ? '#4a90d9' : '#8a94a3'}
-          />
-          <Text style={[styles.toggleText, mode === 'scan' && styles.toggleTextActive]}>Scan</Text>
-        </TouchableOpacity>
-      </View>
+            <SafeAreaView edges={['top']} style={styles.headerSafe}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backRow}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+                <Text style={styles.backText}>Back</Text>
+              </TouchableOpacity>
 
+              <Text style={styles.headerTitle}>Add Medication</Text>
+              <Text style={styles.headerSubtitle}>
+                Scan packaging or enter details manually
+              </Text>
+            </SafeAreaView>
+          </LinearGradient>
+        </View>
+      </Animated.View>
+
+      {/* ================================================================ */}
+      {/* MODE TOGGLE                                                       */}
+      {/* ================================================================ */}
+      <ModeToggle
+        mode={mode}
+        onChange={setMode}
+        onEnterScan={handleEnterScanMode}
+      />
+
+      {/* ================================================================ */}
+      {/* SCAN MODE                                                         */}
+      {/* ================================================================ */}
       {mode === 'scan' ? (
         <View style={styles.cameraWrap}>
           {permission?.granted ? (
@@ -301,54 +433,103 @@ export default function AddMedicationScreen({ navigation }) {
             >
               <View style={styles.scanOverlay}>
                 <View style={styles.scanFrame} />
+                <View style={styles.scanCornerTL} />
+                <View style={styles.scanCornerTR} />
+                <View style={styles.scanCornerBL} />
+                <View style={styles.scanCornerBR} />
+
                 {lookupLoading ? (
                   <View style={styles.lookupBadge}>
-                    <ActivityIndicator color="#ffffff" size="small" />
+                    <ActivityIndicator color="#FFFFFF" size="small" />
                     <Text style={styles.scanHint}>Looking up product…</Text>
                   </View>
                 ) : (
                   <Text style={styles.scanHint}>Line up the barcode inside the frame</Text>
                 )}
               </View>
+
               <View style={styles.scanControls}>
-                <TouchableOpacity style={styles.scanControlBtn} onPress={() => setTorchOn((v) => !v)}>
-                  <Ionicons name={torchOn ? 'flash' : 'flash-outline'} size={15} color="#ffffff" />
-                  <Text style={styles.scanControlText}>{torchOn ? 'Torch on' : 'Torch'}</Text>
+                <TouchableOpacity
+                  style={styles.scanControlBtn}
+                  onPress={() => setTorchOn((v) => !v)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={torchOn ? 'flash' : 'flash-outline'}
+                    size={15}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.scanControlText}>
+                    {torchOn ? 'Torch on' : 'Torch'}
+                  </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.scanControlBtn} onPress={() => setMode('manual')}>
-                  <Ionicons name="keypad-outline" size={15} color="#ffffff" />
+
+                <TouchableOpacity
+                  style={styles.scanControlBtn}
+                  onPress={() => setMode('manual')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="keypad-outline" size={15} color="#FFFFFF" />
                   <Text style={styles.scanControlText}>Enter manually</Text>
                 </TouchableOpacity>
               </View>
             </CameraView>
           ) : (
-            <View style={styles.permissionFallback}>
-              <Ionicons name="camera-outline" size={32} color="#ffffff" style={{ marginBottom: 10 }} />
+            <LinearGradient
+              colors={[C.deep, C.violet, C.magenta]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.permissionFallback}
+            >
+              <View style={styles.permissionIconWrap}>
+                <Ionicons name="camera-outline" size={30} color="#FFFFFF" />
+              </View>
               <Text style={styles.permissionTitle}>Camera access is off</Text>
               <Text style={styles.permissionText}>
-                Turn on camera access in your device settings to scan a barcode, or switch to Manual.
+                Turn on camera access in your device settings to scan a barcode,
+                or switch to Manual.
               </Text>
-              <TouchableOpacity style={styles.permissionBtn} onPress={() => setMode('manual')}>
+              <TouchableOpacity
+                style={styles.permissionBtn}
+                onPress={() => setMode('manual')}
+                activeOpacity={0.85}
+              >
                 <Text style={styles.permissionBtnText}>Switch to Manual</Text>
               </TouchableOpacity>
-            </View>
+            </LinearGradient>
           )}
         </View>
       ) : (
+        /* ============================================================== */
+        /* FORM MODE                                                      */
+        /* ============================================================== */
         <ScrollView
           style={styles.form}
           contentContainerStyle={styles.formContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {scanBanner ? (
-            <View style={[styles.scanBanner, scanBannerTone === 'neutral' && styles.scanBannerNeutral]}>
+            <View
+              style={[
+                styles.scanBanner,
+                scanBannerTone === 'neutral' && styles.scanBannerNeutral,
+              ]}
+            >
               <Ionicons
-                name={scanBannerTone === 'success' ? 'checkmark-circle-outline' : 'information-circle-outline'}
+                name={
+                  scanBannerTone === 'success'
+                    ? 'checkmark-circle-outline'
+                    : 'information-circle-outline'
+                }
                 size={17}
-                color={scanBannerTone === 'success' ? '#1f7a4d' : '#5a6b7a'}
+                color={scanBannerTone === 'success' ? C.success : C.inkMuted}
               />
               <Text
-                style={[styles.scanBannerText, scanBannerTone === 'neutral' && styles.scanBannerTextNeutral]}
+                style={[
+                  styles.scanBannerText,
+                  scanBannerTone === 'neutral' && styles.scanBannerTextNeutral,
+                ]}
               >
                 {scanBanner}
               </Text>
@@ -359,7 +540,7 @@ export default function AddMedicationScreen({ navigation }) {
           <TextInput
             style={[styles.input, errors.name && styles.inputError]}
             placeholder="e.g. Metformin"
-            placeholderTextColor="#a7b0ba"
+            placeholderTextColor={C.inkFaint}
             value={name}
             onChangeText={setName}
           />
@@ -369,7 +550,7 @@ export default function AddMedicationScreen({ navigation }) {
           <TextInput
             style={[styles.input, errors.dosage && styles.inputError]}
             placeholder="e.g. 500mg"
-            placeholderTextColor="#a7b0ba"
+            placeholderTextColor={C.inkFaint}
             value={dosage}
             onChangeText={setDosage}
           />
@@ -379,7 +560,7 @@ export default function AddMedicationScreen({ navigation }) {
           <TextInput
             style={styles.input}
             placeholder="e.g. Diabetes"
-            placeholderTextColor="#a7b0ba"
+            placeholderTextColor={C.inkFaint}
             value={condition}
             onChangeText={setCondition}
           />
@@ -387,16 +568,22 @@ export default function AddMedicationScreen({ navigation }) {
           <Text style={styles.fieldLabel}>Frequency</Text>
           <View style={styles.freqGrid}>
             {FREQUENCIES.map((f) => (
-              <FreqButton key={f} label={f} active={frequency === f} onPress={() => changeFrequency(f)} />
+              <FreqButton
+                key={f}
+                label={f}
+                active={frequency === f}
+                onPress={() => changeFrequency(f)}
+              />
             ))}
           </View>
 
           <Text style={styles.fieldLabel}>Reminder times</Text>
           {frequency === 'As needed' ? (
             <View style={styles.asNeededNote}>
-              <Ionicons name="notifications-outline" size={16} color="#8a6a3d" />
+              <Ionicons name="notifications-off-outline" size={16} color={C.warning} />
               <Text style={styles.asNeededText}>
-                No scheduled reminders — you'll log this dose yourself whenever you take it.
+                No scheduled reminders — you'll log this dose yourself whenever you
+                take it.
               </Text>
             </View>
           ) : (
@@ -406,7 +593,9 @@ export default function AddMedicationScreen({ navigation }) {
           )}
 
           <View style={styles.infoBox}>
-            <Ionicons name="cloud-offline-outline" size={18} color="#2f6cb5" />
+            <View style={styles.infoIconWrap}>
+              <Ionicons name="cloud-offline-outline" size={18} color={C.primary} />
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoBoxTitle}>Offline reminders</Text>
               <Text style={styles.infoBoxSub}>
@@ -415,88 +604,189 @@ export default function AddMedicationScreen({ navigation }) {
             </View>
           </View>
 
-          <View style={{ height: 90 }} />
+          <View style={{ height: 100 }} />
         </ScrollView>
       )}
 
+      {/* ================================================================ */}
+      {/* SAVE BAR                                                          */}
+      {/* ================================================================ */}
       {mode === 'manual' && (
-        <View style={styles.saveBar}>
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
+        <View style={[styles.saveBar, { paddingBottom: 18 + insets.bottom }]}>
+          <TouchableOpacity
+            style={styles.saveBtn}
+            onPress={handleSave}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
             <Text style={styles.saveBtnText}>Save Medication</Text>
           </TouchableOpacity>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f2f5' },
+  container: { flex: 1, backgroundColor: C.bg },
 
-  header: {
-    backgroundColor: '#4a90d9',
-    paddingHorizontal: 22,
-    paddingTop: 8,
-    paddingBottom: 18,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+  /* ── Header ─────────────────────────────────────────────────────── */
+  headerWrap: {
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#1B0A3D',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  backText: { color: '#ffffff', fontSize: 15, fontWeight: '600' },
-  headerTitle: { color: '#ffffff', fontSize: 22, fontWeight: '800', marginTop: 10 },
-  headerSubtitle: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 4 },
+  headerGradient: {
+    paddingBottom: 22,
+    overflow: 'hidden',
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  bloom: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#22D3EE',
+    opacity: 0.18,
+    top: -80,
+    right: -80,
+  },
+  headerSafe: { paddingHorizontal: 22, paddingTop: 8 },
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 10 },
+  backText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    marginTop: 4,
+    fontWeight: '500',
+  },
 
-  toggleRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginTop: 16, marginBottom: 6 },
+  /* ── Mode toggle ────────────────────────────────────────────────── */
+  toggleRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    marginTop: 18,
+    marginBottom: 4,
+  },
   toggleBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: C.surface,
   },
-  toggleActive: { backgroundColor: '#eaf2fb', borderWidth: 1.5, borderColor: '#4a90d9' },
-  toggleInactive: { backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#e2e6ea' },
-  toggleText: { fontSize: 14, fontWeight: '700', color: '#8a94a3' },
-  toggleTextActive: { color: '#4a90d9' },
+  toggleActive: {
+    backgroundColor: C.primarySoft,
+    borderColor: C.primary,
+  },
+  toggleText: { fontSize: 14, fontWeight: '700', color: C.inkFaint },
+  toggleTextActive: { color: C.primary },
 
+  /* ── Camera ─────────────────────────────────────────────────────── */
   cameraWrap: {
     flex: 1,
     marginHorizontal: 20,
-    marginTop: 10,
+    marginTop: 12,
     marginBottom: 20,
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: 'hidden',
     backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: C.line,
   },
-  scanOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  scanOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scanFrame: {
     width: '72%',
     aspectRatio: 1.6,
     borderWidth: 2.5,
-    borderColor: '#ffffff',
+    borderColor: 'rgba(255,255,255,0.9)',
     borderRadius: 16,
   },
+  scanCornerTL: {
+    position: 'absolute',
+    top: '34%',
+    left: '13%',
+    width: 26,
+    height: 26,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: '#FFFFFF',
+    borderTopLeftRadius: 8,
+  },
+  scanCornerTR: {
+    position: 'absolute',
+    top: '34%',
+    right: '13%',
+    width: 26,
+    height: 26,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderColor: '#FFFFFF',
+    borderTopRightRadius: 8,
+  },
+  scanCornerBL: {
+    position: 'absolute',
+    bottom: '34%',
+    left: '13%',
+    width: 26,
+    height: 26,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: '#FFFFFF',
+    borderBottomLeftRadius: 8,
+  },
+  scanCornerBR: {
+    position: 'absolute',
+    bottom: '34%',
+    right: '13%',
+    width: 26,
+    height: 26,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderColor: '#FFFFFF',
+    borderBottomRightRadius: 8,
+  },
   scanHint: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '600',
-    marginTop: 16,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    marginTop: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 10,
+    overflow: 'hidden',
   },
   lookupBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 16,
+    marginTop: 18,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
   },
   scanControls: {
     position: 'absolute',
@@ -516,72 +806,117 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
   },
-  scanControlText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  scanControlText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 
+  /* ── Permission fallback ────────────────────────────────────────── */
   permissionFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 28,
-    backgroundColor: '#1a2a3a',
   },
-  permissionTitle: { color: '#ffffff', fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  permissionText: { color: 'rgba(255,255,255,0.75)', fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  permissionIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  permissionTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  permissionText: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+  },
   permissionBtn: {
-    marginTop: 18,
-    backgroundColor: '#4a90d9',
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 20,
+    marginTop: 20,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 22,
   },
-  permissionBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  permissionBtnText: { color: C.primaryDark, fontSize: 14, fontWeight: '800' },
 
+  /* ── Form ───────────────────────────────────────────────────────── */
   form: { flex: 1 },
   formContent: { paddingHorizontal: 20, paddingTop: 18 },
 
   scanBanner: {
     flexDirection: 'row',
     gap: 9,
-    backgroundColor: '#e3f6ec',
+    backgroundColor: C.successSoft,
     borderRadius: 14,
     padding: 13,
     marginBottom: 18,
     alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
   scanBannerNeutral: {
-    backgroundColor: '#eef1f4',
+    backgroundColor: '#F1F5F9',
+    borderColor: C.line,
   },
-  scanBannerText: { flex: 1, color: '#1f7a4d', fontSize: 12.5, lineHeight: 18, fontWeight: '600' },
-  scanBannerTextNeutral: { color: '#5a6b7a' },
+  scanBannerText: {
+    flex: 1,
+    color: C.success,
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  scanBannerTextNeutral: { color: C.inkSoft },
 
-  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#43505e', marginBottom: 7, marginTop: 4 },
+  fieldLabel: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: C.inkSoft,
+    marginBottom: 7,
+    marginTop: 4,
+    letterSpacing: 0.2,
+  },
   input: {
     borderWidth: 1.5,
-    borderColor: '#e2e6ea',
-    borderRadius: 13,
+    borderColor: C.line,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 13,
     fontSize: 14.5,
-    color: '#1a2a3a',
-    backgroundColor: '#ffffff',
+    color: C.ink,
+    backgroundColor: C.surface,
     marginBottom: 3,
+    fontWeight: '500',
   },
-  inputError: { borderColor: '#e74c3c' },
-  errorText: { color: '#e74c3c', fontSize: 12, marginBottom: 12, marginTop: 2 },
+  inputError: { borderColor: C.danger },
+  errorText: {
+    color: C.danger,
+    fontSize: 12,
+    marginBottom: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
 
   freqGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 17 },
   freqBtn: {
     width: '47.5%',
-    paddingVertical: 12,
-    borderRadius: 13,
+    paddingVertical: 13,
+    borderRadius: 14,
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#e2e6ea',
-    backgroundColor: '#ffffff',
+    borderColor: C.line,
+    backgroundColor: C.surface,
   },
-  freqBtnActive: { backgroundColor: '#eaf2fb', borderColor: '#4a90d9' },
-  freqBtnText: { fontSize: 13.5, fontWeight: '700', color: '#43505e' },
-  freqBtnTextActive: { color: '#4a90d9' },
+  freqBtnActive: { backgroundColor: C.primarySoft, borderColor: C.primary },
+  freqBtnText: { fontSize: 13.5, fontWeight: '700', color: C.inkSoft },
+  freqBtnTextActive: { color: C.primary },
 
   timeRow: { marginBottom: 9 },
   timeInput: {
@@ -589,52 +924,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1.5,
-    borderColor: '#e2e6ea',
-    borderRadius: 12,
+    borderColor: C.line,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
+    paddingVertical: 13,
+    backgroundColor: C.surface,
   },
-  timeInputText: { fontSize: 14, color: '#1a2a3a', fontWeight: '600' },
+  timeLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  timeInputText: { fontSize: 14, color: C.ink, fontWeight: '600' },
 
   asNeededNote: {
     flexDirection: 'row',
-    gap: 9,
-    backgroundColor: '#fdf3ea',
-    borderRadius: 13,
-    padding: 13,
+    gap: 10,
+    backgroundColor: C.warningSoft,
+    borderRadius: 14,
+    padding: 14,
     alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
-  asNeededText: { flex: 1, fontSize: 12.5, color: '#8a6a3d', lineHeight: 18 },
+  asNeededText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: C.warning,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
 
   infoBox: {
     flexDirection: 'row',
     gap: 11,
-    backgroundColor: '#eaf2fb',
-    borderRadius: 14,
+    backgroundColor: C.primarySoft,
+    borderRadius: 16,
     padding: 14,
-    marginTop: 10,
+    marginTop: 12,
     alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
   },
-  infoBoxTitle: { fontSize: 13.5, fontWeight: '700', color: '#2f6cb5', marginBottom: 2 },
-  infoBoxSub: { fontSize: 12, color: '#5a7ba3', lineHeight: 17 },
+  infoIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoBoxTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: C.primaryDark,
+    marginBottom: 2,
+  },
+  infoBoxSub: { fontSize: 12, color: C.primary, lineHeight: 17 },
 
+  /* ── Save bar ───────────────────────────────────────────────────── */
   saveBar: {
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: '#f0f2f5',
+    backgroundColor: C.bg,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
   },
   saveBtn: {
-    backgroundColor: '#4a90d9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: C.primary,
     paddingVertical: 16,
     borderRadius: 18,
-    alignItems: 'center',
-    shadowColor: '#4a90d9',
+    shadowColor: C.primary,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    elevation: 5,
   },
-  saveBtnText: { color: '#ffffff', fontSize: 16, fontWeight: '800' },
+  saveBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
 });
