@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,51 +6,91 @@ import {
   StyleSheet,
   ScrollView,
   StatusBar,
+  Animated,
+  Easing,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useMedications } from '../context/MedicationsContext';
+
+const C = {
+  deep: '#1B0A3D',
+  violet: '#4C1D95',
+  magenta: '#A21CAF',
+  rose: '#F43F5E',
+
+  primary: '#7C3AED',
+  primarySoft: '#F3E8FF',
+  mint: '#5EEAD4',
+
+  success: '#059669',
+  successSoft: '#ECFDF5',
+  warning: '#D97706',
+  warningSoft: '#FFFBEB',
+  danger: '#DC2626',
+  dangerSoft: '#FEF2F2',
+
+  ink: '#0B1220',
+  inkSoft: '#475569',
+  inkMuted: '#64748B',
+  inkFaint: '#94A3B8',
+  line: '#EDE9FE',
+  surface: '#FFFFFF',
+  bg: '#F8F7FC',
+};
 
 const TABS = [
   { key: 'Home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
   { key: 'Medications', label: 'Meds', icon: 'medkit-outline', iconActive: 'medkit' },
-  { key: 'History', label: 'History', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+  { key: 'Community', label: 'Community', icon: 'people-outline', iconActive: 'people' },
   { key: 'Pharmacy', label: 'Pharmacy', icon: 'location-outline', iconActive: 'location' },
   { key: 'Profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
 
-// ---------------------------------------------------------------------------
-// TEMPORARY MOCK DATA — replace with the same source PharmacyDealsScreen
-// uses (DB fetch / shared context) so both screens stay in sync. Only the
-// top promoted deal is shown here as a teaser.
-// ---------------------------------------------------------------------------
 const FEATURED_DEAL = {
-  id: '1',
   pharmacyName: 'Clicks Pharmacy',
   discount: '10% off selected medication',
   distanceKm: 2.3,
-  isPromoted: true,
+  expiresInDays: 4,
 };
 
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
   return 'Good evening';
 }
 
-function formatTimeLabel(t) {
-  const [h, m] = t.split(':').map(Number);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  let h12 = h % 12;
-  if (h12 === 0) h12 = 12;
-  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+function getInitials(name = '') {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'ME';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function getNextDoseLabel(med) {
-  if (!med.times || med.times.length === 0) return 'As needed';
+function formatTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function formatCountdown(mins) {
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `in ${h}h ${m}m` : `in ${h}h`;
+}
+
+function getDoseTiming(med) {
+  const times = Array.isArray(med.times) ? med.times.filter(Boolean) : [];
+  if (times.length === 0) {
+    return { order: 9000, tone: 'neutral', label: 'As needed', sub: 'No schedule' };
+  }
   const now = new Date();
-  const todaysTimes = [...med.times]
+  const parsed = times
     .map((t) => {
       const [h, m] = t.split(':').map(Number);
       const d = new Date();
@@ -59,504 +99,972 @@ function getNextDoseLabel(med) {
     })
     .sort((a, b) => a.date - b.date);
 
-  const upcoming = todaysTimes.find((entry) => entry.date > now);
-  if (upcoming) return `Due ${formatTimeLabel(upcoming.raw)}`;
-  return `Tomorrow ${formatTimeLabel(todaysTimes[0].raw)}`;
+  const next = parsed.find((p) => p.date.getTime() > now.getTime());
+  const first = parsed[0];
+
+  if (med.takenToday) {
+    return {
+      order: 8000,
+      tone: 'done',
+      label: 'Taken',
+      sub: next ? `Next ${formatTime(next.raw)}` : `Logged ${formatTime(first.raw)}`,
+    };
+  }
+  if (next) {
+    const mins = Math.round((next.date - now) / 60000);
+    return {
+      order: mins,
+      tone: mins <= 60 ? 'soon' : 'upcoming',
+      label: formatTime(next.raw),
+      sub: formatCountdown(mins),
+    };
+  }
+  const last = parsed[parsed.length - 1];
+  return {
+    order: -1,
+    tone: 'overdue',
+    label: 'Overdue',
+    sub: `Missed ${formatTime(last.raw)}`,
+  };
 }
 
-function BottomTabBar({ activeTab, onTabPress }) {
+const TONE = {
+  overdue: { bg: C.dangerSoft, fg: C.danger },
+  soon: { bg: C.warningSoft, fg: C.warning },
+  upcoming: { bg: C.primarySoft, fg: C.primary },
+  done: { bg: C.successSoft, fg: C.success },
+  neutral: { bg: '#F1F5F9', fg: C.inkMuted },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Tab bar                                                            */
+/* ------------------------------------------------------------------ */
+function BottomTabBar({ active, onPress, inset }) {
   return (
-    <View style={styles.tabBar}>
-      {TABS.map((tab) => {
-        const isActive = tab.key === activeTab;
-        return (
-          <TouchableOpacity
-            key={tab.key}
-            style={styles.tabItem}
-            onPress={() => onTabPress(tab.key)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={isActive ? tab.iconActive : tab.icon}
-              size={21}
-              color={isActive ? '#4a90d9' : '#9aa5b1'}
-            />
-            <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+    <View style={[styles.tabWrap, { paddingBottom: Math.max(inset, 12) }]}>
+      <View style={styles.tabBar}>
+        {TABS.map((t) => {
+          const on = t.key === active;
+          return (
+            <TouchableOpacity
+              key={t.key}
+              style={styles.tabItem}
+              onPress={() => onPress(t.key)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.tabIcon, on && styles.tabIconOn]}>
+                <Ionicons
+                  name={on ? t.iconActive : t.icon}
+                  size={19}
+                  color={on ? '#FFF' : C.inkFaint}
+                />
+              </View>
+              <Text style={[styles.tabText, on && styles.tabTextOn]}>
+                {t.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
-export default function HomeScreen({ navigation, userName = 'Alex' }) {
-  const { medications, toggleTaken } = useMedications();
-  const [activeTab, setActiveTab] = useState('Home');
-
-  const totalCount = medications.length;
-  const takenCount = useMemo(
-    () => medications.filter((m) => m.takenToday).length,
-    [medications]
-  );
-  const adherencePct = totalCount === 0 ? 0 : Math.round((takenCount / totalCount) * 100);
-
-  const handleTabPress = (tabKey) => {
-    setActiveTab(tabKey);
-    if (tabKey !== 'Home') {
-      navigation.navigate(tabKey);
-    }
-  };
-
+/* ------------------------------------------------------------------ */
+/*  Section label                                                      */
+/* ------------------------------------------------------------------ */
+function SectionLabel({ title, action, onAction }) {
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Header */}
-        <View style={styles.headerSection}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.greetingText}>{getGreeting()},</Text>
-              <Text style={styles.userName}>{userName}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.emergencyButton}
-              onPress={() => navigation.navigate('Emergency')}
-            >
-              <Ionicons name="alert-circle-outline" size={15} color="#ffffff" />
-              <Text style={styles.emergencyText}>Emergency</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Adherence card */}
-          <View style={styles.adherenceCard}>
-            <View style={styles.adherenceRow}>
-              <Text style={styles.adherenceLabel}>Today's adherence</Text>
-              <Text style={styles.adherencePct}>{adherencePct}%</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${adherencePct}%` }]} />
-            </View>
-            <Text style={styles.adherenceSubtext}>
-              {totalCount === 0
-                ? 'Add a medication to start tracking'
-                : `${takenCount} of ${totalCount} medications taken today`}
-            </Text>
-          </View>
-        </View>
-
-        {/* Next doses */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>NEXT DOSES</Text>
-            {totalCount > 0 && (
-              <TouchableOpacity onPress={() => navigation.navigate('Medications')}>
-                <Text style={styles.viewAllText}>View all</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {totalCount === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="medkit-outline" size={30} color="#c3cdd8" />
-              <Text style={styles.emptyStateTitle}>No medications yet</Text>
-              <Text style={styles.emptyStateText}>
-                Add your first medication to see it here and get reminders.
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyStateBtn}
-                onPress={() => navigation.navigate('AddMedication')}
-              >
-                <Text style={styles.emptyStateBtnText}>Add Medication</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            medications.map((med) => {
-              const isTaken = !!med.takenToday;
-              return (
-                <View key={med.id} style={styles.doseCard}>
-                  <View style={[styles.doseIconWrap, { backgroundColor: med.color }]}>
-                    <Ionicons name={med.icon || 'medkit-outline'} size={20} color="#ffffff" />
-                  </View>
-                  <View style={styles.doseInfo}>
-                    <Text style={styles.doseName}>{med.name}</Text>
-                    <Text style={styles.doseMeta}>
-                      {med.dosage} · {getNextDoseLabel(med)}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.takeButton, isTaken && styles.takeButtonDone]}
-                    onPress={() => toggleTaken(med.id)}
-                  >
-                    <Text style={[styles.takeButtonText, isTaken && styles.takeButtonTextDone]}>
-                      {isTaken ? 'Taken' : 'Take'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })
-          )}
-        </View>
-
-        {/* Nearby Pharmacy Deals */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>NEARBY DEALS</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Pharmacy')}>
-              <Text style={styles.viewAllText}>View all</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={styles.dealCard}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Pharmacy')}
-          >
-            {FEATURED_DEAL.isPromoted && (
-              <View style={styles.dealPromotedBadge}>
-                <Text style={styles.dealPromotedBadgeText}>PROMOTED</Text>
-              </View>
-            )}
-            <View style={styles.dealIconWrap}>
-              <Text style={styles.dealIconText}>💊</Text>
-            </View>
-            <View style={styles.dealInfo}>
-              <Text style={styles.dealPharmacyName}>{FEATURED_DEAL.pharmacyName}</Text>
-              <Text style={styles.dealDiscount}>{FEATURED_DEAL.discount}</Text>
-              <Text style={styles.dealDistance}>{FEATURED_DEAL.distanceKm} km away</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#c3cdd8" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Quick actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>QUICK ACTIONS</Text>
-          <View style={styles.quickActionsRow}>
-            <TouchableOpacity
-              style={styles.quickActionCard}
-              onPress={() => navigation.navigate('AddMedication')}
-            >
-              <Ionicons name="add-circle-outline" size={24} color="#4a90d9" />
-              <Text style={styles.quickActionText}>Add Medication</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickActionCard, styles.quickActionCardAlt]}
-              onPress={() => navigation.navigate('Pharmacy')}
-            >
-              <Ionicons name="location-outline" size={24} color="#8e5fd9" />
-              <Text style={[styles.quickActionText, styles.quickActionTextAlt]}>
-                Find Pharmacy
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
-
-      <BottomTabBar activeTab={activeTab} onTabPress={handleTabPress} />
-    </SafeAreaView>
+    <View style={styles.sectionLabel}>
+      <Text style={styles.sectionLabelText}>{title}</Text>
+      {action ? (
+        <TouchableOpacity
+          onPress={onAction}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.sectionAction}>{action}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Dose row                                                           */
+/* ------------------------------------------------------------------ */
+function DoseRow({ med, onToggle, index }) {
+  const timing = getDoseTiming(med);
+  const taken = !!med.takenToday;
+  const t = TONE[timing.tone] || TONE.neutral;
+
+  const fade = useRef(new Animated.Value(0)).current;
+  const rise = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, {
+        toValue: 1, duration: 360, delay: 180 + index * 50,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(rise, {
+        toValue: 0, duration: 360, delay: 180 + index * 50,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fade, rise, index]);
+
+  return (
+    <Animated.View
+      style={[styles.doseRow, { opacity: fade, transform: [{ translateY: rise }] }]}
+    >
+      <View
+        style={[styles.doseIcon, { backgroundColor: (med.color || C.primary) + '18' }]}
+      >
+        <Ionicons
+          name={med.icon || 'medkit-outline'}
+          size={18}
+          color={med.color || C.primary}
+        />
+      </View>
+
+      <View style={styles.doseInfo}>
+        <Text style={styles.doseName} numberOfLines={1}>
+          {med.name}
+        </Text>
+        <View style={styles.doseMetaRow}>
+          <Text style={styles.doseMeta} numberOfLines={1}>
+            {med.dosage || '—'}
+          </Text>
+          <Text style={styles.doseMetaDot}>·</Text>
+          <Text style={styles.doseMeta} numberOfLines={1}>
+            {timing.label}
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.doseBadge, { backgroundColor: t.bg }]}>
+        <Text style={[styles.doseBadgeText, { color: t.fg }]}>
+          {timing.sub}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.doseCheck, taken && styles.doseCheckDone]}
+        onPress={onToggle}
+        activeOpacity={0.75}
+      >
+        <Ionicons
+          name={taken ? 'checkmark' : 'add'}
+          size={16}
+          color={taken ? C.success : '#FFFFFF'}
+        />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Screen                                                             */
+/* ------------------------------------------------------------------ */
+export default function HomeScreen({ navigation, userName = 'Alex' }) {
+  const { medications = [], toggleTaken } = useMedications();
+  const [activeTab, setActiveTab] = useState('Home');
+  const insets = useSafeAreaInsets();
+
+  const total = medications.length;
+  const taken = medications.filter((m) => m.takenToday).length;
+  const remaining = total - taken;
+  const pct = total === 0 ? 0 : Math.round((taken / total) * 100);
+
+  const sorted = useMemo(
+    () =>
+      [...medications].sort(
+        (a, b) => getDoseTiming(a).order - getDoseTiming(b).order
+      ),
+    [medications]
+  );
+
+  const nextUp = useMemo(() => {
+    const pending = sorted.filter((m) => !m.takenToday);
+    return pending[0] || null;
+  }, [sorted]);
+
+  const nextTiming = nextUp ? getDoseTiming(nextUp) : null;
+
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const headerRise = useRef(new Animated.Value(14)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+  const bloom = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(headerFade, {
+        toValue: 1, duration: 480, delay: 40,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(headerRise, {
+        toValue: 0, duration: 480, delay: 40,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+    ]).start();
+
+    Animated.timing(progress, {
+      toValue: pct / 100,
+      duration: 850,
+      delay: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bloom, {
+          toValue: 1, duration: 7500,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+        Animated.timing(bloom, {
+          toValue: 0, duration: 7500,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [pct]);
+
+  const progressWidth = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  const bloomX = bloom.interpolate({ inputRange: [0, 1], outputRange: [0, -30] });
+  const bloomY = bloom.interpolate({ inputRange: [0, 1], outputRange: [0, 24] });
+
+  const handleTab = (key) => {
+    setActiveTab(key);
+    if (key !== 'Home') navigation.navigate(key);
+  };
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 120 + insets.bottom },
+        ]}
+      >
+        {/* ============================================================ */}
+        {/* HEADER                                                        */}
+        {/* ============================================================ */}
+        <Animated.View
+          style={{ opacity: headerFade, transform: [{ translateY: headerRise }] }}
+        >
+          <View style={styles.headerWrap}>
+            <LinearGradient
+              colors={[C.deep, C.violet, C.magenta, C.rose]}
+              locations={[0, 0.35, 0.7, 1]}
+              start={{ x: 0.05, y: 0 }}
+              end={{ x: 0.95, y: 1 }}
+              style={styles.headerGradient}
+            >
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.bloom,
+                  { transform: [{ translateX: bloomX }, { translateY: bloomY }] },
+                ]}
+              />
+
+              <SafeAreaView edges={['top']} style={styles.headerSafe}>
+                <View style={styles.topRow}>
+                  <TouchableOpacity
+                    style={styles.identity}
+                    activeOpacity={0.8}
+                    onPress={() => navigation.navigate('Profile')}
+                  >
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>
+                        {getInitials(userName)}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.greetSmall}>{greeting()}</Text>
+                      <Text style={styles.greetName} numberOfLines={1}>
+                        {userName}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => navigation.navigate('Emergency')}
+                    accessibilityLabel="Emergency"
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="alert-circle" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.summary}>
+                  <View style={styles.summaryTop}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.summaryLabel}>Today's adherence</Text>
+                      <Text style={styles.summaryBig}>
+                        {taken}
+                        <Text style={styles.summaryBigFaint}>/{total}</Text>
+                        <Text style={styles.summaryUnit}> doses</Text>
+                      </Text>
+                    </View>
+                    <Text style={styles.summaryPct}>{pct}%</Text>
+                  </View>
+
+                  <View style={styles.progressTrack}>
+                    <Animated.View
+                      style={[styles.progressFill, { width: progressWidth }]}
+                    />
+                  </View>
+
+                  <Text style={styles.summaryFoot} numberOfLines={1}>
+                    {total === 0
+                      ? 'Add a medication to begin'
+                      : remaining === 0
+                      ? 'All doses logged for today'
+                      : nextUp
+                      ? `Next: ${nextUp.name} · ${nextTiming.label} ${nextTiming.sub}`
+                      : 'No scheduled doses remaining'}
+                  </Text>
+                </View>
+              </SafeAreaView>
+            </LinearGradient>
+          </View>
+        </Animated.View>
+
+        {/* ============================================================ */}
+        {/* QUICK ACCESS — 2x2 grid                                       */}
+        {/* ============================================================ */}
+        <View style={styles.section}>
+          <SectionLabel title="Quick access" />
+          <View style={styles.quickGrid}>
+            {/* Add medication — primary tile */}
+            <TouchableOpacity
+              style={[styles.quickTile, styles.quickTilePrimary]}
+              onPress={() => navigation.navigate('AddMedication')}
+              activeOpacity={0.9}
+            >
+              <View style={styles.quickTileTop}>
+                <View style={styles.quickIconPrimary}>
+                  <Ionicons name="add" size={20} color="#FFFFFF" />
+                </View>
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color="rgba(255,255,255,0.8)"
+                />
+              </View>
+              <View>
+                <Text style={styles.quickTitlePrimary}>Add medication</Text>
+                <Text style={styles.quickSubPrimary}>Create new schedule</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* My medications */}
+            <TouchableOpacity
+              style={styles.quickTile}
+              onPress={() => navigation.navigate('Medications')}
+              activeOpacity={0.9}
+            >
+              <View style={styles.quickTileTop}>
+                <View style={styles.quickIconSoft}>
+                  <Ionicons name="list-outline" size={20} color={C.primary} />
+                </View>
+                <Ionicons name="arrow-forward" size={16} color={C.inkFaint} />
+              </View>
+              <View>
+                <Text style={styles.quickTitle}>My medications</Text>
+                <Text style={styles.quickSub}>
+                  {total} active {total === 1 ? 'item' : 'items'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Pharmacy */}
+            <TouchableOpacity
+              style={styles.quickTile}
+              onPress={() => navigation.navigate('Pharmacy')}
+              activeOpacity={0.9}
+            >
+              <View style={styles.quickTileTop}>
+                <View style={styles.quickIconSoft}>
+                  <Ionicons
+                    name="location-outline"
+                    size={20}
+                    color={C.primary}
+                  />
+                </View>
+                <Ionicons name="arrow-forward" size={16} color={C.inkFaint} />
+              </View>
+              <View>
+                <Text style={styles.quickTitle}>Find pharmacy</Text>
+                <Text style={styles.quickSub}>Nearby &amp; open</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Community */}
+            <TouchableOpacity
+              style={styles.quickTile}
+              onPress={() => navigation.navigate('Community')}
+              activeOpacity={0.9}
+            >
+              <View style={styles.quickTileTop}>
+                <View style={styles.quickIconSoft}>
+                  <Ionicons
+                    name="people-outline"
+                    size={20}
+                    color={C.primary}
+                  />
+                </View>
+                <Ionicons name="arrow-forward" size={16} color={C.inkFaint} />
+              </View>
+              <View>
+                <Text style={styles.quickTitle}>Community</Text>
+                <Text style={styles.quickSub}>Share &amp; learn</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ============================================================ */}
+        {/* TODAY'S SCHEDULE                                              */}
+        {/* ============================================================ */}
+        <View style={styles.section}>
+          <SectionLabel
+            title="Today's schedule"
+            action={total > 0 ? 'See all' : null}
+            onAction={() => navigation.navigate('Medications')}
+          />
+
+          {total === 0 ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="medkit-outline" size={24} color={C.primary} />
+              </View>
+              <Text style={styles.emptyTitle}>No medications yet</Text>
+              <Text style={styles.emptyText}>
+                Add your first medication to build your daily schedule and
+                start receiving reminders.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => navigation.navigate('AddMedication')}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+                <Text style={styles.emptyBtnText}>Add Medication</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            sorted.map((med, i) => (
+              <DoseRow
+                key={med.id}
+                med={med}
+                index={i}
+                onToggle={() => toggleTaken(med.id)}
+              />
+            ))
+          )}
+        </View>
+
+        {/* ============================================================ */}
+        {/* NEARBY DEALS                                                  */}
+        {/* ============================================================ */}
+        <View style={styles.section}>
+          <SectionLabel
+            title="Nearby deals"
+            action="See all"
+            onAction={() => navigation.navigate('Pharmacy')}
+          />
+
+          <TouchableOpacity
+            style={styles.deal}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate('Pharmacy')}
+          >
+            <View style={styles.dealIconWrap}>
+              <Ionicons name="storefront-outline" size={18} color={C.primary} />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <View style={styles.dealTop}>
+                <Text style={styles.dealPharmacy} numberOfLines={1}>
+                  {FEATURED_DEAL.pharmacyName}
+                </Text>
+                <View style={styles.dealTag}>
+                  <Text style={styles.dealTagText}>PROMOTED</Text>
+                </View>
+              </View>
+              <Text style={styles.dealDiscount} numberOfLines={1}>
+                {FEATURED_DEAL.discount}
+              </Text>
+              <Text style={styles.dealMeta}>
+                {FEATURED_DEAL.distanceKm} km away  ·  Ends in{' '}
+                {FEATURED_DEAL.expiresInDays}d
+              </Text>
+            </View>
+
+            <Ionicons name="chevron-forward" size={16} color={C.inkFaint} />
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      <BottomTabBar active={activeTab} onPress={handleTab} inset={insets.bottom} />
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Styles                                                             */
+/* ------------------------------------------------------------------ */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f0f2f5',
+  container: { flex: 1, backgroundColor: C.bg },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 120 },
+
+  /* Header */
+  headerWrap: {
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#1B0A3D',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 30,
-  },
-  headerSection: {
-    backgroundColor: '#4a90d9',
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 28,
+  headerGradient: {
+    paddingBottom: 24,
+    overflow: 'hidden',
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+  bloom: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#22D3EE',
+    opacity: 0.16,
+    top: -70,
+    right: -80,
   },
-  greetingText: {
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.85)',
-  },
-  userName: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginTop: 2,
-  },
-  emergencyButton: {
+  headerSafe: { paddingHorizontal: 20, paddingTop: 10 },
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e74c3c',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    gap: 6,
+    marginBottom: 20,
   },
-  emergencyText: {
-    color: '#ffffff',
-    fontSize: 14,
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 14.5,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  greetSmall: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.72)',
+    fontWeight: '500',
+  },
+  greetName: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 2,
+    letterSpacing: -0.3,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(220,38,38,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Summary */
+  summary: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  summaryTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  summaryLabel: {
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.78)',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  summaryBig: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.7,
+    marginTop: 4,
+  },
+  summaryBigFaint: {
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.55)',
     fontWeight: '600',
   },
-  adherenceCard: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 18,
-    padding: 20,
+  summaryUnit: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
-  adherenceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  adherenceLabel: {
-    fontSize: 15,
-    color: '#ffffff',
-  },
-  adherencePct: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#ffffff',
+  summaryPct: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: C.mint,
+    letterSpacing: -0.5,
   },
   progressTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.20)',
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 4,
-    backgroundColor: '#ffffff',
+    borderRadius: 3,
+    backgroundColor: C.mint,
   },
-  adherenceSubtext: {
-    fontSize: 13,
+  summaryFoot: {
+    fontSize: 12.5,
     color: 'rgba(255,255,255,0.85)',
-    marginTop: 10,
+    fontWeight: '500',
+    marginTop: 14,
   },
-  section: {
-    paddingHorizontal: 24,
-    marginTop: 24,
-  },
-  sectionHeader: {
+
+  /* Section */
+  section: { paddingHorizontal: 20, marginTop: 22 },
+  sectionLabel: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#7f8c8d',
-    letterSpacing: 0.5,
-    marginBottom: 14,
-  },
-  viewAllText: {
-    fontSize: 14,
-    color: '#4a90d9',
-    fontWeight: '600',
-  },
-  emptyState: {
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-  },
-  emptyStateTitle: {
+  sectionLabelText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#43505e',
-    marginTop: 10,
+    color: C.ink,
+    letterSpacing: -0.2,
   },
-  emptyStateText: {
+  sectionAction: {
     fontSize: 13,
-    color: '#8a94a3',
-    textAlign: 'center',
-    marginTop: 6,
-    lineHeight: 18,
+    color: C.primary,
+    fontWeight: '600',
   },
-  emptyStateBtn: {
-    marginTop: 16,
-    backgroundColor: '#4a90d9',
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 20,
+
+  /* Quick access 2x2 grid */
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
   },
-  emptyStateBtnText: {
-    color: '#ffffff',
-    fontSize: 14,
+  quickTile: {
+    width: '48%',
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: C.line,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    minHeight: 118,
+    justifyContent: 'space-between',
+  },
+  quickTilePrimary: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+    shadowColor: C.primary,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  quickTileTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  quickIconPrimary: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickIconSoft: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: C.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickTitle: {
+    fontSize: 14.5,
     fontWeight: '700',
+    color: C.ink,
+    letterSpacing: -0.2,
   },
-  doseCard: {
+  quickTitlePrimary: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  quickSub: {
+    fontSize: 12,
+    color: C.inkMuted,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  quickSubPrimary: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.82)',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+
+  /* Dose row */
+  doseRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.line,
   },
-  doseIconWrap: {
-    width: 44,
-    height: 44,
+  doseIcon: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
-  doseInfo: {
-    flex: 1,
-  },
+  doseInfo: { flex: 1, marginRight: 8 },
   doseName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a2a3a',
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: C.ink,
+    letterSpacing: -0.1,
+  },
+  doseMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    gap: 5,
   },
   doseMeta: {
-    fontSize: 13,
-    color: '#7f8c8d',
-    marginTop: 2,
+    fontSize: 12,
+    color: C.inkMuted,
+    fontWeight: '500',
+    flexShrink: 1,
   },
-  takeButton: {
-    backgroundColor: '#4a90d9',
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 20,
-  },
-  takeButtonDone: {
-    backgroundColor: '#e8f5ee',
-  },
-  takeButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  takeButtonTextDone: {
-    color: '#2ea86b',
-  },
-  dealCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-    position: 'relative',
-  },
-  dealPromotedBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: '#4a90d9',
+  doseMetaDot: { fontSize: 12, color: C.inkFaint },
+  doseBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    marginRight: 8,
   },
-  dealPromotedBadgeText: {
-    color: '#ffffff',
-    fontSize: 9,
+  doseBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.1,
   },
-  dealIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#f0f7ff',
+  doseCheck: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
   },
-  dealIconText: {
-    fontSize: 20,
+  doseCheckDone: { backgroundColor: C.successSoft },
+
+  /* Empty */
+  empty: {
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: 18,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: C.line,
   },
-  dealInfo: {
-    flex: 1,
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dealPharmacyName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a2a3a',
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.ink,
+    marginTop: 14,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: C.inkMuted,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 19,
+  },
+  emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 18,
+    backgroundColor: C.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 12,
+  },
+  emptyBtnText: { color: '#FFFFFF', fontSize: 13.5, fontWeight: '700' },
+
+  /* Deal */
+  deal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  dealIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: C.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  dealTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  dealPharmacy: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: C.ink,
+    flexShrink: 1,
+    letterSpacing: -0.1,
+  },
+  dealTag: {
+    backgroundColor: C.primarySoft,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  dealTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: C.primary,
+    letterSpacing: 0.5,
   },
   dealDiscount: {
     fontSize: 13,
-    color: '#2ecc71',
+    color: C.success,
     fontWeight: '600',
-    marginTop: 2,
+    marginBottom: 3,
   },
-  dealDistance: {
-    fontSize: 12,
-    color: '#a0aec0',
-    marginTop: 2,
+  dealMeta: {
+    fontSize: 11.5,
+    color: C.inkFaint,
+    fontWeight: '500',
   },
-  quickActionsRow: {
-    flexDirection: 'row',
-    gap: 14,
-  },
-  quickActionCard: {
-    flex: 1,
-    backgroundColor: '#eaf2fb',
-    borderRadius: 16,
-    paddingVertical: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  quickActionCardAlt: {
-    backgroundColor: '#f2eafb',
-  },
-  quickActionText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#4a90d9',
-  },
-  quickActionTextAlt: {
-    color: '#8e5fd9',
+
+  /* Tab bar */
+  tabWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: '#eceff1',
-    paddingTop: 8,
-    paddingBottom: 10,
+    backgroundColor: C.surface,
+    borderRadius: 26,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: C.line,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    elevation: 12,
   },
-  tabItem: {
-    flex: 1,
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabIcon: {
+    width: 40,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    marginBottom: 2,
   },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#9aa5b1',
+  tabIconOn: { backgroundColor: C.primary },
+  tabText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: C.inkFaint,
+    letterSpacing: 0.1,
   },
-  tabLabelActive: {
-    color: '#4a90d9',
-    fontWeight: '700',
-  },
+  tabTextOn: { color: C.primary, fontWeight: '800' },
 });
