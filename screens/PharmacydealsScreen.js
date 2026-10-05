@@ -56,7 +56,7 @@ function DealCard({ deal, onViewDeal }) {
 
       <View style={styles.cardHeader}>
         <View style={styles.pharmacyIcon}>
-          <Text style={styles.pharmacyIconText}>💊</Text>
+          <Text style={styles.pharmacyIconText}></Text>
         </View>
         <View style={styles.cardHeaderText}>
           <Text style={styles.pharmacyName}>{deal.pharmacyName}</Text>
