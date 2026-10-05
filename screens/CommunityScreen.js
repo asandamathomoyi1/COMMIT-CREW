@@ -50,11 +50,6 @@ const FILTERS = [
   { key: 'Vitamin D3', label: 'Vitamin D3' },
 ];
 
-// ---------------------------------------------------------------------------
-// Educational videos — tapping a card opens a YouTube search for the topic.
-// Swap `query` for a real YouTube playlist/video URL when you have specific
-// curated content you want to point users to instead of a search.
-// ---------------------------------------------------------------------------
 const VIDEOS = [
   {
     id: 'v1',
@@ -176,7 +171,7 @@ function VideoCard({ video, index }) {
         await Linking.openURL(url);
       }
     } catch (e) {
-      // Fail silently — nothing the user can do if YouTube isn't reachable.
+      // Fail silently
     }
   };
 
@@ -437,6 +432,9 @@ export default function CommunityScreen({ navigation }) {
           { paddingBottom: 120 + insets.bottom },
         ]}
       >
+        {/* ============================================================ */}
+        {/* HEADER                                                        */}
+        {/* ============================================================ */}
         <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerRise }] }}>
           <View style={styles.headerWrap}>
             <LinearGradient
@@ -454,14 +452,34 @@ export default function CommunityScreen({ navigation }) {
                 ]}
               />
               <SafeAreaView edges={['top']} style={styles.headerSafe}>
-                <View style={styles.headerTopRow}>
-                  <View style={{ flex: 1 }}>
+                {/* Top row: back · title · compose */}
+                <View style={styles.headerRow}>
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => navigation.goBack()}
+                    accessibilityLabel="Go back"
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+
+                  <View style={styles.headerTitleWrap}>
                     <Text style={styles.headerTitle}>Community</Text>
                     <Text style={styles.headerSubtitle}>
-                      Real experiences from people on similar medications
+                      Real experiences from people like you
                     </Text>
                   </View>
+
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => navigation.navigate('CreatePost')}
+                    accessibilityLabel="Create post"
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
                 </View>
+
                 <View style={styles.disclaimerPill}>
                   <Ionicons name="information-circle-outline" size={13} color="rgba(255,255,255,0.9)" />
                   <Text style={styles.disclaimerText}>
@@ -473,6 +491,9 @@ export default function CommunityScreen({ navigation }) {
           </View>
         </Animated.View>
 
+        {/* ============================================================ */}
+        {/* COMPOSER                                                      */}
+        {/* ============================================================ */}
         <Animated.View
           style={[
             styles.composerWrap,
@@ -494,9 +515,9 @@ export default function CommunityScreen({ navigation }) {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* ================================================================ */}
-        {/* LEARN — educational YouTube videos                                */}
-        {/* ================================================================ */}
+        {/* ============================================================ */}
+        {/* LEARN                                                         */}
+        {/* ============================================================ */}
         <Animated.View
           style={[
             styles.learnSection,
@@ -536,9 +557,9 @@ export default function CommunityScreen({ navigation }) {
           </ScrollView>
         </Animated.View>
 
-        {/* ================================================================ */}
-        {/* FILTERS                                                          */}
-        {/* ================================================================ */}
+        {/* ============================================================ */}
+        {/* FILTERS                                                       */}
+        {/* ============================================================ */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -554,9 +575,9 @@ export default function CommunityScreen({ navigation }) {
           ))}
         </ScrollView>
 
-        {/* ================================================================ */}
-        {/* FEED                                                             */}
-        {/* ================================================================ */}
+        {/* ============================================================ */}
+        {/* FEED                                                          */}
+        {/* ============================================================ */}
         <View style={styles.section}>
           {visiblePosts.length === 0 ? (
             <View style={styles.emptyState}>
@@ -606,6 +627,7 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   scrollContent: { paddingBottom: 120 },
 
+  /* ── Header ────────────────────────────────────────────────────── */
   headerWrap: {
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
@@ -633,25 +655,37 @@ const styles = StyleSheet.create({
     right: -90,
   },
   headerSafe: { paddingHorizontal: 20, paddingTop: 10 },
-  headerTopRow: {
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 14,
   },
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitleWrap: {
+    flex: 1,
+    paddingHorizontal: 14,
+  },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: 'rgba(255,255,255,0.75)',
-    marginTop: 4,
+    marginTop: 3,
     fontWeight: '500',
-    lineHeight: 18,
-    paddingRight: 12,
+    lineHeight: 17,
   },
   disclaimerPill: {
     flexDirection: 'row',
@@ -672,6 +706,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
+  /* ── Composer ─────────────────────────────────────────────────── */
   composerWrap: { paddingHorizontal: 20, marginTop: -22 },
   composerCard: {
     flexDirection: 'row',
@@ -706,10 +741,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  /* ── Learn / Videos ─────────────────────────────────────────────── */
-  learnSection: {
-    marginTop: 26,
-  },
+  /* ── Learn / Videos ───────────────────────────────────────────── */
+  learnSection: { marginTop: 26 },
   learnHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -724,36 +757,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   learnIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 32, height: 32, borderRadius: 10,
     backgroundColor: C.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   learnTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: C.ink,
-    letterSpacing: -0.2,
+    fontSize: 15, fontWeight: '800', color: C.ink, letterSpacing: -0.2,
   },
   learnSubtitle: {
-    fontSize: 11.5,
-    color: C.inkMuted,
-    marginTop: 1,
-    fontWeight: '500',
+    fontSize: 11.5, color: C.inkMuted, marginTop: 1, fontWeight: '500',
   },
-  learnSeeAll: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: C.primary,
-  },
+  learnSeeAll: { fontSize: 13, fontWeight: '700', color: C.primary },
 
-  videosRow: {
-    paddingHorizontal: 20,
-    gap: 12,
-    paddingBottom: 4,
-  },
+  videosRow: { paddingHorizontal: 20, gap: 12, paddingBottom: 4 },
   videoCard: {
     width: 180,
     backgroundColor: C.surface,
@@ -775,66 +791,39 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   videoThumbIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center', justifyContent: 'center',
   },
   playBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    position: 'absolute', top: 10, right: 10,
+    width: 26, height: 26, borderRadius: 13,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
     paddingLeft: 2,
   },
   durationBadge: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
+    position: 'absolute', bottom: 8, right: 8,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
   },
   durationText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    color: '#FFFFFF', fontSize: 10, fontWeight: '700', letterSpacing: 0.3,
   },
-  videoMeta: {
-    padding: 12,
-  },
+  videoMeta: { padding: 12 },
   videoTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '700',
-    color: C.ink,
-    letterSpacing: -0.1,
+    fontSize: 13, lineHeight: 17, fontWeight: '700',
+    color: C.ink, letterSpacing: -0.1,
   },
   videoSourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8,
   },
   videoSource: {
-    fontSize: 11,
-    color: C.inkMuted,
-    fontWeight: '500',
-    flexShrink: 1,
+    fontSize: 11, color: C.inkMuted, fontWeight: '500', flexShrink: 1,
   },
 
-  /* ── Filters ────────────────────────────────────────────────────── */
+  /* ── Filters ──────────────────────────────────────────────────── */
   filtersRow: {
     paddingHorizontal: 20,
     paddingTop: 22,
@@ -856,7 +845,7 @@ const styles = StyleSheet.create({
   },
   chipTextActive: { color: '#FFFFFF' },
 
-  /* ── Feed ───────────────────────────────────────────────────────── */
+  /* ── Feed ─────────────────────────────────────────────────────── */
   section: { paddingHorizontal: 20, marginTop: 14 },
   postCard: {
     backgroundColor: C.surface,
@@ -934,6 +923,7 @@ const styles = StyleSheet.create({
     fontSize: 13, color: C.inkMuted, textAlign: 'center', marginTop: 6, lineHeight: 19,
   },
 
+  /* ── FAB ──────────────────────────────────────────────────────── */
   fab: {
     position: 'absolute', right: 20,
     width: 56, height: 56, borderRadius: 28,
@@ -946,6 +936,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
+  /* ── Tab bar ──────────────────────────────────────────────────── */
   tabBarWrap: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 16, paddingTop: 8,
