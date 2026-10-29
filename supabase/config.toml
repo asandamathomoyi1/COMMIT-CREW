@@ -1,0 +1,14 @@
+# Minimal config so the Supabase CLI can deploy the JavaScript edge functions.
+# Requires Supabase CLI >= 1.215.0. Run `supabase link --project-ref <ref>` once first.
+
+[functions.dosewise-ai]
+verify_jwt = true
+entrypoint = './functions/dosewise-ai/index.js'
+
+[functions.admin-users]
+verify_jwt = true
+entrypoint = './functions/admin-users/index.js'
+
+[functions.scan-prescription]
+verify_jwt = true
+entrypoint = './functions/scan-prescription/index.js'
