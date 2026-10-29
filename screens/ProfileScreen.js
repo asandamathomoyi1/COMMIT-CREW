@@ -10,11 +10,11 @@ import {
   StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
- 
-const ProfileScreen = ({ navigation }) => {
+
+const ProfileScreen = () => {
   const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [cloudBackupEnabled, setCloudBackupEnabled] = useState(true);
- 
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
@@ -43,22 +43,19 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
         </View>
- 
+
         {/* Public Profile Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Public Profile</Text>
           <View style={styles.card}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => navigation.navigate('PublicProfile')}
-            >
+            <TouchableOpacity style={styles.menuItem}>
               <Ionicons name="share-social-outline" size={22} color="#4A6FA5" />
               <Text style={styles.menuText}>Share adherence data with your doctor</Text>
               <Ionicons name="chevron-forward-outline" size={20} color="#C0C0C0" />
             </TouchableOpacity>
           </View>
         </View>
- 
+
         {/* Health & Security Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>HEALTH & SECURITY</Text>
@@ -97,7 +94,7 @@ const ProfileScreen = ({ navigation }) => {
             </View>
           </View>
         </View>
- 
+
         {/* Data & Sync Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>DATA & SYNC</Text>
@@ -136,13 +133,13 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
         </View>
- 
+
         <View style={styles.bottomSpacer} />
       </ScrollView>
     </SafeAreaView>
   );
 };
- 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -151,6 +148,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
+  
+  // Header Styles
   header: {
     backgroundColor: '#FFFFFF',
     paddingTop: 16,
@@ -212,6 +211,8 @@ const styles = StyleSheet.create({
   editButton: {
     padding: 8,
   },
+
+  // Section Styles
   section: {
     paddingHorizontal: 20,
     marginBottom: 24,
@@ -224,6 +225,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginLeft: 4,
   },
+  
+  // Card Styles
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -234,6 +237,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  
+  // Menu Item Styles
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -266,5 +271,5 @@ const styles = StyleSheet.create({
     height: 40,
   },
 });
- 
+
 export default ProfileScreen;
