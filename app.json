@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "MedTrack",
+    "slug": "MedTrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "SCHEDULE_EXACT_ALARM",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "color": "#0866E8",
+          "defaultChannel": "medtrack-reminders-sound-vibrate"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MedTrack needs access to your photos so you can choose a prescription image.",
+          "cameraPermission": "MedTrack needs camera access so you can photograph a prescription."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MedTrack uses your location to find pharmacies near you."
+        }
+      ],
+      "expo-status-bar"
+    ]
+  }
+}
